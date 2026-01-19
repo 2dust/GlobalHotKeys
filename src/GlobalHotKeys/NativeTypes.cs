@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 namespace GlobalHotKeys;
 
@@ -28,34 +28,65 @@ public struct WNDCLASSEX
 {
     public uint cbSize;
     public uint style;
-    public WndProc lpfnWndProc;
+    public IntPtr lpfnWndProc;
     public int cbClsExtra;
     public int cbWndExtra;
     public IntPtr hInstance;
     public IntPtr hIcon;
     public IntPtr hCursor;
     public IntPtr hbrBackground;
-    public string? lpszMenuName;
-    public string lpszClassName;
+    public IntPtr lpszMenuName;
+    public IntPtr lpszClassName;
     public IntPtr hIconSm;
+}
 
-    public static WNDCLASSEX FromWndProc(WndProc wndProc)
+/// <summary>
+/// Helper class that manages WNDCLASSEX lifecycle and marshalling.
+/// Prevents GC collection of delegate and keeps string pointer valid.
+/// </summary>
+public sealed class WndClassExHandle : IDisposable
+{
+    private readonly WndProc _wndProc;
+    private IntPtr _classNamePtr;
+    private bool _disposed;
+
+    public WNDCLASSEX WndClassEx { get; }
+    public string ClassName { get; }
+
+    public WndClassExHandle(WndProc wndProc)
     {
-        return new WNDCLASSEX
+        _wndProc = wndProc;
+        ClassName = $"GlobalHotKeyWindowClass_{Guid.NewGuid()}";
+        _classNamePtr = Marshal.StringToHGlobalUni(ClassName);
+
+        WndClassEx = new WNDCLASSEX
         {
-            cbSize = (uint)Marshal.SizeOf(typeof(WNDCLASSEX)),
+            cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(),
             style = 0,
-            lpfnWndProc = wndProc,
+            lpfnWndProc = Marshal.GetFunctionPointerForDelegate(_wndProc),
             cbClsExtra = 0,
             cbWndExtra = 0,
             hInstance = NativeFunctions.GetModuleHandle(null),
             hIcon = IntPtr.Zero,
             hCursor = IntPtr.Zero,
             hbrBackground = IntPtr.Zero,
-            lpszMenuName = null,
-            lpszClassName = "GlobalHotKeyWindowClass_" + Guid.NewGuid().ToString(),
+            lpszMenuName = IntPtr.Zero,
+            lpszClassName = _classNamePtr,
             hIconSm = IntPtr.Zero
         };
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        if (_classNamePtr != IntPtr.Zero)
+        {
+            Marshal.FreeHGlobal(_classNamePtr);
+            _classNamePtr = IntPtr.Zero;
+        }
+        _disposed = true;
+        GC.SuppressFinalize(this);
     }
 }
 
